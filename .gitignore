@@ -10,5 +10,7 @@ secrets.py
 *.log
 *.txt
 *.spec
+NAUKRI/progress.json
+screenshots/
 
 

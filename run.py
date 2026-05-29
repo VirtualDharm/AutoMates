@@ -6,6 +6,7 @@ from LINKEDIN import search_jobs
 from LINKEDIN import connect_people
 from LINKEDIN import profile_stalker
 from NAUKRI import recommended_jobs as n_rec
+from NAUKRI import nvites as n_nvites
 from LINKEDIN import connect_recruiter
 
 # first time setup
@@ -76,9 +77,23 @@ Choose below ?
 		rp.apply_job()
 elif SERVICE == 3:
 	print("Naukri Selected")
-	print("Applying Naukri Recommended Jobs.")
-	n = n_rec.NaukriBot()
-	n.click_job()
+	print("""
+Choose below ?
+1. Apply Naukri Recommended Jobs.
+2. Apply NVites from Inbox (supports resume, screening questions).
+	""")
+	NAUKRI_SERVICE = int(input())
+	if NAUKRI_SERVICE == 1:
+		print("Applying Naukri Recommended Jobs.")
+		n = n_rec.NaukriBot()
+		n.click_job()
+	elif NAUKRI_SERVICE == 2:
+		print("NVites selected.")
+		print("Run headless? (1=Yes, 2=No)")
+		HEADLESS = int(input()) == 1
+		print("Edit NAUKRI/answers.json before running to set your CTC, notice period, etc.")
+		nv = n_nvites.NaukriNVitesBot(headless=HEADLESS)
+		nv.run()
 elif SERVICE == 4:
 	print("Bumble Selected")
 	print("Swiping right on all profiles :P")
