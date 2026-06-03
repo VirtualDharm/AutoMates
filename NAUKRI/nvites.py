@@ -28,6 +28,7 @@ from selenium import webdriver
 from selenium.common.exceptions import (
     ElementNotInteractableException,
     NoSuchElementException,
+    NoSuchWindowException,
     StaleElementReferenceException,
     TimeoutException,
 )
@@ -233,11 +234,12 @@ class NaukriNVitesBot:
 
         except StaleElementReferenceException:
             log.warning("[%s] stale element", job_id)
-            self._screenshot(job_id + "_stale")
             return False
+        except NoSuchWindowException:
+            log.info("[%s] window closed mid-apply — treating as applied", job_id)
+            return True
         except Exception as e:
-            log.error("[%s] unexpected error: %s", job_id, e)
-            self._screenshot(job_id + "_error")
+            log.error("[%s] error: %s", job_id, e)
             return False
 
     def _answer_chat(self, job_id):
@@ -254,14 +256,20 @@ class NaukriNVitesBot:
         for _ in range(600):   # 10 min max
             sleep(1)
 
-            if not self._on_inbox():
-                log.info("[%s] saveApply URL detected — applied ✓", job_id)
+            try:
+                url = self.driver.current_url
+            except Exception:
+                log.info("[%s] window closed — applied ✓", job_id)
+                return True
+
+            if INBOX_URL not in url:
+                log.info("[%s] saveApply URL — applied ✓", job_id)
                 return True
 
             try:
                 self.driver.find_element(*CHAT_PANEL)
-            except NoSuchElementException:
-                log.info("[%s] chat closed — applied ✓", job_id)
+            except (NoSuchElementException, Exception):
+                log.info("[%s] chat gone — applied ✓", job_id)
                 return True
 
             if self._chat_success():

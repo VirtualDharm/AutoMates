@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(killall \"Google Chrome for Testing\")",
+      "Bash(killall chromedriver *)",
+      "Read(//Users/mac/bin/chrome-data/**)",
+      "Bash(xargs rm -f)",
+      "Bash(/Users/mac/.venv/bin/python3 NAUKRI/nvites.py)",
+      "Bash(cat)",
+      "Bash(/Users/mac/.venv/bin/python3 /tmp/inspect_search.py)",
+      "Bash(rtk read *)",
+      "Bash(/Users/mac/.venv/bin/python3 /tmp/inspect_detail.py)",
+      "Bash(rtk ps *)",
+      "Bash(rtk grep *)"
+    ]
+  }
+}
