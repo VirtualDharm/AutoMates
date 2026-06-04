@@ -16,6 +16,7 @@ Skips:
 import json
 import logging
 import os
+import re
 import string
 import sys
 from time import sleep
@@ -69,14 +70,15 @@ log = logging.getLogger(__name__)
 class NaukriSearchBot:
 
     def __init__(self, search_url, headless=False,
-                 progress_path="NAUKRI/search_progress.json"):
+                 progress_path="NAUKRI/search_progress.json",
+                 profile_dir="chrome-data"):
         self.search_url = search_url
         self.progress_path = progress_path
         self.progress = set(self._load_json(progress_path, default=[]))
         os.makedirs("screenshots", exist_ok=True)
 
         opts = Options()
-        opts.add_argument(f"--user-data-dir={local_bin_directory}chrome-data")
+        opts.add_argument(f"--user-data-dir={local_bin_directory}{profile_dir}")
         opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -97,18 +99,24 @@ class NaukriSearchBot:
     def run(self):
         applied = skipped = failed = external = 0
         page = 1
+        closed = False
 
-        while True:
+        while not closed:
             page_url = self._page_url(self.search_url, page)
             log.info("=== PAGE %d ===  %s", page, page_url[:70])
-            self.driver.get(page_url)
 
-            if not self._wait(SEARCH_CARD, timeout=20):
-                log.info("No cards on page %d — done.", page)
+            try:
+                self.driver.get(page_url)
+
+                if not self._wait(SEARCH_CARD, timeout=20):
+                    log.info("No cards on page %d — done.", page)
+                    break
+
+                # Collect (job_id, href) for every card on this page
+                jobs = self._collect_jobs()
+            except NoSuchWindowException:
+                log.info("Browser window closed — stopping cleanly.")
                 break
-
-            # Collect (job_id, href) for every card on this page
-            jobs = self._collect_jobs()
             if not jobs:
                 log.info("Empty page %d — done.", page)
                 break
@@ -121,6 +129,11 @@ class NaukriSearchBot:
 
                 log.info("[%s] %s", job_id, title[:50])
                 result = self._apply_one(href, job_id)
+                if result == "closed":
+                    log.warning("Browser window closed — stopping. "
+                                "Job NOT marked applied; will retry next run.")
+                    closed = True
+                    break
                 if result == "applied":
                     self.progress.add(job_id)
                     self._save_progress()
@@ -182,8 +195,8 @@ class NaukriSearchBot:
             return self._answer_chat(job_id, detail_url)
 
         except NoSuchWindowException:
-            log.info("[%s] window closed — treating applied", job_id)
-            return "applied"
+            log.warning("[%s] browser window closed — NOT marking applied", job_id)
+            return "closed"
         except Exception as e:
             log.error("[%s] error: %s", job_id, e)
             return "failed"
@@ -201,8 +214,8 @@ class NaukriSearchBot:
             try:
                 url = self.driver.current_url
             except Exception:
-                log.info("[%s] window closed — applied ✓", job_id)
-                return "applied"
+                log.warning("[%s] browser window closed — NOT marking applied", job_id)
+                return "closed"
 
             if "saveApply" in url:
                 log.info("[%s] saveApply URL — applied ✓", job_id)
@@ -246,15 +259,14 @@ class NaukriSearchBot:
     # ------------------------------------------------------------------
 
     def _page_url(self, base_url, page):
-        """Inject pageNo=<page> into the search URL."""
+        """Page N lives in the PATH as `<slug>-N` (page 1 = no suffix).
+        All filter query params (ctcFilter, wfhType, jobAge, ...) are kept as-is."""
         if page <= 1:
             return base_url
         parsed = urlparse(base_url)
-        # Naukri uses both ?pageNo= and path -<n> styles; query param is reliable
-        q = parse_qs(parsed.query)
-        q["pageNo"] = [str(page)]
-        new_query = urlencode(q, doseq=True)
-        return urlunparse(parsed._replace(query=new_query))
+        # strip any existing -<n> suffix on the last path segment, then append -page
+        path = re.sub(r"-\d+$", "", parsed.path)
+        return urlunparse(parsed._replace(path=f"{path}-{page}"))
 
     def _wait(self, locator, timeout=15):
         try:
@@ -311,11 +323,23 @@ class NaukriSearchBot:
 
 
 if __name__ == "__main__":
+    try:
+        from NAUKRI import accounts
+    except ImportError:
+        import accounts
+
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if not args:
-        print('Usage: python3 NAUKRI/search_apply.py "<search-url>" [--headless]')
+        print('Usage: python3 NAUKRI/search_apply.py "<search-url>" [--headless] [--ashok|--dharmendra]')
         sys.exit(1)
     url = args[0]
     headless = "--headless" in sys.argv
-    bot = NaukriSearchBot(url, headless=headless)
+    name, cfg = accounts.resolve(sys.argv)
+    log.info("Account: %s (%s)", name, cfg["email"])
+    bot = NaukriSearchBot(
+        url,
+        headless=headless,
+        progress_path=cfg["search_progress"],
+        profile_dir=cfg["profile"],
+    )
     bot.run()

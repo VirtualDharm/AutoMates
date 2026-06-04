@@ -14,5 +14,8 @@
       "Bash(rtk ps *)",
       "Bash(rtk grep *)"
     ]
+  },
+  "remote": {
+    "defaultEnvironmentId": "env_01FSmi5SgDa4exkqve41sYeq"
   }
 }

@@ -116,7 +116,8 @@ class NaukriNVitesBot:
 
     def __init__(self, headless=False,
                  answers_path="NAUKRI/answers.json",
-                 progress_path="NAUKRI/progress.json"):
+                 progress_path="NAUKRI/progress.json",
+                 profile_dir="chrome-data"):
         self.progress_path = progress_path
         self.answers_path = answers_path
         self.answers = self._load_json(answers_path, default={})
@@ -124,7 +125,7 @@ class NaukriNVitesBot:
         os.makedirs("screenshots", exist_ok=True)
 
         opts = Options()
-        opts.add_argument(f"--user-data-dir={local_bin_directory}chrome-data")
+        opts.add_argument(f"--user-data-dir={local_bin_directory}{profile_dir}")
         opts.add_argument("--disable-blink-features=AutomationControlled")
         opts.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -548,6 +549,15 @@ class NaukriNVitesBot:
 
 if __name__ == "__main__":
     import sys
+    from NAUKRI import accounts
+
     headless = "--headless" in sys.argv
-    bot = NaukriNVitesBot(headless=headless)
+    name, cfg = accounts.resolve(sys.argv)
+    log.info("Account: %s (%s)", name, cfg["email"])
+    bot = NaukriNVitesBot(
+        headless=headless,
+        answers_path=cfg["answers"],
+        progress_path=cfg["nvites_progress"],
+        profile_dir=cfg["profile"],
+    )
     bot.run()

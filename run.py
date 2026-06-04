@@ -7,7 +7,15 @@ from LINKEDIN import connect_people
 from LINKEDIN import profile_stalker
 from NAUKRI import recommended_jobs as n_rec
 from NAUKRI import nvites as n_nvites
+from NAUKRI import accounts as n_accounts
 from LINKEDIN import connect_recruiter
+
+
+def pick_account():
+	print("Which Naukri account? (1=Dharmendra, 2=Ashok)")
+	choice = int(input())
+	name = "ashok" if choice == 2 else "dharmendra"
+	return name, n_accounts.ACCOUNTS[name]
 
 # first time setup
 # creating a UI in python using pyqt6
@@ -17,9 +25,10 @@ print("1. Let me login to the website.\n2. I am already logged in previously usi
 FIRST_SETUP = int(input())
 if FIRST_SETUP == 1:
 	# letting the user to login
+	_, login_cfg = pick_account()
 	print("Chrome window will open to let you login to the accounts. \nYou have two minutes to login to your account :)")
 	sleep(10)
-	setup.loginWindow()
+	setup.loginWindow(profile_dir=login_cfg["profile"])
 else:
 	print("skipping setup...")
 
@@ -89,10 +98,16 @@ Choose below ?
 		n.click_job()
 	elif NAUKRI_SERVICE == 2:
 		print("NVites selected.")
+		acct_name, acct_cfg = pick_account()
 		print("Run headless? (1=Yes, 2=No)")
 		HEADLESS = int(input()) == 1
-		print("Edit NAUKRI/answers.json before running to set your CTC, notice period, etc.")
-		nv = n_nvites.NaukriNVitesBot(headless=HEADLESS)
+		print(f"Edit {acct_cfg['answers']} before running to set your CTC, notice period, etc.")
+		nv = n_nvites.NaukriNVitesBot(
+			headless=HEADLESS,
+			answers_path=acct_cfg["answers"],
+			progress_path=acct_cfg["nvites_progress"],
+			profile_dir=acct_cfg["profile"],
+		)
 		nv.run()
 elif SERVICE == 4:
 	print("Bumble Selected")
