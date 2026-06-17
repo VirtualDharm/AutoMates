@@ -12,7 +12,12 @@
       "Bash(rtk read *)",
       "Bash(/Users/mac/.venv/bin/python3 /tmp/inspect_detail.py)",
       "Bash(rtk ps *)",
-      "Bash(rtk grep *)"
+      "Bash(rtk grep *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk git *)",
+      "Bash(file /Users/mac/Projects2/AutoMates/zz/*)",
+      "Bash(flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics)",
+      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --version)"
     ]
   },
   "remote": {

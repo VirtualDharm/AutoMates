@@ -9,6 +9,9 @@ from NAUKRI import recommended_jobs as n_rec
 from NAUKRI import nvites as n_nvites
 from NAUKRI import accounts as n_accounts
 from LINKEDIN import connect_recruiter
+from LINKEDIN import apply_jobs as li_apply
+from WELLFOUND import apply_jobs as wf_apply
+from websites.indeed import apply_jobs as in_apply
 
 
 def pick_account():
@@ -40,13 +43,20 @@ Which service to automate ?
 2. Linkedin
 3. Naukri
 4. Bumble
+5. Indeed
 0. Exit
 	""")
 SERVICE = int(input())
 
 # ask input if required
 if SERVICE == 1:
-	print("No Service found! Ask the dev.")
+	print("WellFound Selected")
+	print("Apply to jobs from a WellFound jobs URL.")
+	url = input("\nEnter WellFound jobs URL\n")
+	print("Run headless? (1=Yes, 2=No)")
+	headless = int(input()) == 1
+	wf = wf_apply.WellFoundApplyBot(url, headless=headless)
+	wf.run()
 elif SERVICE == 2:
 	print("Linkedin Selected")
 	print("""
@@ -56,6 +66,7 @@ Choose below ?
 3. Connect to Company People (paypal, nvidia, tesla, etc.)
 4. Stalk Profiles (opens a link from profile you give, then keeps on.)
 5. Connect to recruiter who is hiring certain position.
+6. Apply to jobs from a search URL (Easy Apply, resumable).
 	""")
 	LINKEDIN_SERVICE = int(input())
 	if LINKEDIN_SERVICE == 1:
@@ -84,6 +95,13 @@ Choose below ?
 		print('Make sure to write about you in constants.py under variable LINKEDIN_CANDIDATE_INFO under 300 words')
 		rp = connect_recruiter.LinkedinBot(job_profile=job_profile)
 		rp.apply_job()
+	elif LINKEDIN_SERVICE == 6:
+		print("Applying to LinkedIn jobs from search URL.")
+		url = input("\nEnter LinkedIn jobs search URL\n")
+		print("Run headless? (1=Yes, 2=No)")
+		headless = int(input()) == 1
+		la = li_apply.LinkedInApplyBot(url, headless=headless)
+		la.run()
 elif SERVICE == 3:
 	print("Naukri Selected")
 	print("""
@@ -114,6 +132,14 @@ elif SERVICE == 4:
 	print("Swiping right on all profiles :P")
 	b = swipe.BumbleBot()
 	b.right_swipe()
+elif SERVICE == 5:
+	print("Indeed Selected")
+	print("Apply to jobs from an Indeed search URL.")
+	url = input("\nEnter Indeed search URL\n")
+	print("Run headless? (1=Yes, 2=No)")
+	headless = int(input()) == 1
+	ia = in_apply.IndeedApplyBot(url, headless=headless)
+	ia.run()
 else:
 	exit()
 
