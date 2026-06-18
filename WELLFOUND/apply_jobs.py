@@ -95,6 +95,7 @@ class WellFoundApplyBot:
         try:
             self.driver.get(self.search_url)
             sleep(3)
+            self._pause_for_login()
             if not self._wait(SEARCH_CARD, timeout=20):
                 log.info("No job cards found — done.")
                 self.go_exit()
@@ -270,6 +271,18 @@ class WellFoundApplyBot:
             self.driver.switch_to.window(self.driver.window_handles[0])
         except Exception:
             pass
+
+    def _pause_for_login(self):
+        """Wait for the user to log in before collecting (no time pressure)."""
+        print(f"\n{'='*55}", flush=True)
+        print("🔑 Log in to WellFound in the browser if needed.", flush=True)
+        print("   When the job list is visible, press Enter here to start.", flush=True)
+        print(f"{'='*55}", flush=True)
+        try:
+            input()
+        except EOFError:
+            log.info("No stdin — waiting 60s for manual login.")
+            sleep(60)
 
     def _save_progress(self):
         try:

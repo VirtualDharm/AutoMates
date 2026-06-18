@@ -49,18 +49,39 @@ except ImportError:
 SEARCH_CARD = (By.CSS_SELECTOR, "div.job-card-container[data-job-id], li.scaffold-layout__list-item[data-occludable-job-id]")
 CARD_TITLE_LINK = (By.CSS_SELECTOR, "a.job-card-list__title, a.job-card-container__link")
 
-# Job detail page: Easy Apply button. Easy Apply has aria-label containing
-# "Easy Apply"; a plain "Apply" button redirects off-site (external).
-EASY_APPLY_BTN = (By.CSS_SELECTOR, "button.jobs-apply-button")
+# Job detail page: Easy Apply control. LinkedIn's SDUI layout renders it as an
+# <a> (not a <button>) with aria-label "Easy Apply to this job" and an href
+# ending in /apply/?openSDUIApplyFlow=true. Classic layout uses a <button> with
+# aria-label "Easy Apply". Match both; class names are hashed and unusable.
+EASY_APPLY_BTN = (By.XPATH,
+                  "//a[contains(@aria-label, 'Easy Apply')]"
+                  " | //button[contains(@aria-label, 'Easy Apply')]"
+                  " | //a[contains(@href, 'openSDUIApplyFlow')]"
+                  " | //*[(self::a or self::button)]"
+                  "[.//span[contains(normalize-space(.), 'Easy Apply')]]")
+# Any apply control at all (used to tell 'external' from 'page not loaded')
+ANY_APPLY_BTN = (By.XPATH,
+                 "//a[contains(@aria-label, 'Apply')]"
+                 " | //button[contains(@aria-label, 'Apply')]"
+                 " | //a[contains(@href, '/apply')]"
+                 " | //*[(self::a or self::button)]"
+                 "[.//span[contains(normalize-space(.), 'Apply')]]")
 
 # The Easy Apply modal that opens after clicking
 APPLY_MODAL = (By.CSS_SELECTOR, "div.jobs-easy-apply-modal, div[data-test-modal][role='dialog']")
-# Success confirmation shown after the application is sent
-SUCCESS_MODAL = (By.CSS_SELECTOR, "div.artdeco-modal__content h2, div.jpac-modal-header")
+# Multi-step modal buttons (identified by aria-label; classes are hashed)
+NEXT_BTN = (By.XPATH,
+            "//button[@aria-label='Continue to next step']"
+            " | //button[@data-easy-apply-next-button]"
+            " | //button[@aria-label='Review your application']"
+            " | //button[@aria-label='Review']")
+SUBMIT_BTN = (By.XPATH,
+              "//button[@aria-label='Submit application']"
+              " | //button[@aria-label='Submit Application']")
 
 SUCCESS_TEXTS = [
-    "application sent", "applied", "your application was sent",
-    "premium", "application submitted",
+    "application sent", "your application was sent",
+    "application submitted", "was sent to",
 ]
 
 logging.basicConfig(
@@ -93,6 +114,17 @@ class LinkedInApplyBot:
         applied = skipped = failed = external = 0
         page = 0  # LinkedIn pages step by 25 in the `start` query param
         closed = False
+
+        # One-time gate: load page 1, let the user log in, then press Enter so
+        # collection runs against the logged-in DOM.
+        try:
+            self.driver.get(self._page_url(self.search_url, 0))
+            sleep(2)
+        except NoSuchWindowException:
+            log.info("Browser window closed — stopping cleanly.")
+            self.go_exit()
+            return
+        self._pause_for_login()
 
         while not closed:
             page_url = self._page_url(self.search_url, page)
@@ -154,30 +186,43 @@ class LinkedInApplyBot:
     def _apply_one(self, href, job_id):
         try:
             self.driver.get(href)
-            sleep(2)
+            sleep(3)
 
-            apply_btn = self._fast_wait(EASY_APPLY_BTN, timeout=6)
+            # Wait for the job detail (any apply button) to render first, so we
+            # don't mislabel a slow-loading page as external.
+            self._wait(ANY_APPLY_BTN, timeout=12)
+
+            apply_btn = None
+            for _ in range(3):  # retry: the button can hydrate a beat late
+                btns = self.driver.find_elements(*EASY_APPLY_BTN)
+                if btns:
+                    apply_btn = btns[0]
+                    break
+                sleep(1.5)
+
             if apply_btn is None:
-                log.warning("[%s] no Easy Apply button (likely external)", job_id)
+                # An apply button exists but it's not Easy Apply → external.
+                if self.driver.find_elements(*ANY_APPLY_BTN):
+                    log.info("[%s] apply button is external (not Easy Apply)", job_id)
+                else:
+                    log.warning("[%s] no apply button found at all", job_id)
                 return "external"
 
-            # An Easy Apply button says "Easy Apply"; a plain redirect button
-            # says "Apply" and opens a new tab / external site.
-            label = (apply_btn.text or "").lower()
-            aria = (apply_btn.get_attribute("aria-label") or "").lower()
-            if "easy apply" not in label and "easy apply" not in aria:
-                return "external"
-
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", apply_btn)
+            sleep(0.3)
             self.driver.execute_script("arguments[0].click();", apply_btn)
-            sleep(2)
+            sleep(3)
 
-            modal = self._fast_wait(APPLY_MODAL, timeout=5)
-            if modal is None:
-                # No modal opened — check for an immediate success state,
-                # otherwise treat as external/unexpected.
+            # Apply flow entered either as a classic modal OR the SDUI flow
+            # (URL navigates to /apply/?openSDUIApplyFlow=true).
+            in_flow = ("/apply" in self.driver.current_url
+                       or "openSDUIApplyFlow" in self.driver.current_url
+                       or bool(self.driver.find_elements(*APPLY_MODAL)))
+            if not in_flow:
                 if self._success_visible():
                     return "applied"
-                return "external"
+                log.warning("[%s] apply flow did not open", job_id)
+                return "failed"
 
             return self._wait_for_human(job_id)
 
@@ -189,25 +234,58 @@ class LinkedInApplyBot:
             return "failed"
 
     def _wait_for_human(self, job_id):
-        """Modal open — user fills form + clicks Submit. Bot watches only."""
-        log.info("[%s] Easy Apply modal open — fill form & click Submit", job_id)
-        print(f"\n{'='*55}", flush=True)
-        print("📋 Easy Apply open — answer questions & click Submit in browser", flush=True)
-        print(f"{'='*55}", flush=True)
+        """Drive the multi-step Easy Apply modal: auto-click Next / Review,
+        but STOP at the final Submit so the user reviews and submits.
 
-        for _ in range(600):   # 10 min max
+        - Pre-filled steps (contact info, etc.) → bot clicks Next/Review.
+        - A step with empty required fields/questions blocks advancement; the
+          bot keeps retrying while the user fills them in, then proceeds.
+        - When 'Submit application' appears, the bot pauses and waits for the
+          user to click Submit (it never submits)."""
+        log.info("[%s] Easy Apply modal open — auto-advancing", job_id)
+        announced_submit = False
+        announced_fill = False
+
+        for _ in range(600):   # ~10 min max
             sleep(1)
-
             try:
-                # Success confirmation appeared?
+                # Done?
                 if self._success_visible():
                     log.info("[%s] application sent ✓", job_id)
                     self._dismiss_modal()
                     return "applied"
-                # Modal gone (user closed after submit)?
-                if not self.driver.find_elements(*APPLY_MODAL):
-                    log.info("[%s] modal closed — applied ✓", job_id)
+                url = self.driver.current_url
+                in_flow = ("/apply" in url or "openSDUIApplyFlow" in url
+                           or bool(self.driver.find_elements(*APPLY_MODAL)))
+                if not in_flow:
+                    log.info("[%s] apply flow closed — applied ✓", job_id)
                     return "applied"
+
+                # Final step → hand off to the human, never auto-submit.
+                if self.driver.find_elements(*SUBMIT_BTN):
+                    if not announced_submit:
+                        log.info("[%s] review step — waiting for you to click Submit", job_id)
+                        print(f"\n{'='*55}", flush=True)
+                        print("📋 Review your application & click Submit in browser", flush=True)
+                        print(f"{'='*55}", flush=True)
+                        announced_submit = True
+                    continue
+
+                # Otherwise auto-advance.
+                nexts = [b for b in self.driver.find_elements(*NEXT_BTN)
+                         if b.is_displayed() and b.is_enabled()]
+                if nexts:
+                    self.driver.execute_script("arguments[0].click();", nexts[0])
+                    announced_fill = False
+                    sleep(1.5)
+                else:
+                    # No Next/Submit: step needs the user (questions, resume, etc.)
+                    if not announced_fill:
+                        log.info("[%s] step needs input — fill it; I'll continue", job_id)
+                        print(f"\n{'='*55}", flush=True)
+                        print("📝 Fill the required fields/questions — bot resumes automatically", flush=True)
+                        print(f"{'='*55}", flush=True)
+                        announced_fill = True
             except NoSuchWindowException:
                 log.warning("[%s] browser window closed — NOT marking applied", job_id)
                 return "closed"
@@ -282,9 +360,8 @@ class LinkedInApplyBot:
 
     def _success_visible(self):
         try:
-            els = self.driver.find_elements(*SUCCESS_MODAL)
-            txt = " ".join(e.text.lower() for e in els)
-            return any(s in txt for s in SUCCESS_TEXTS)
+            body = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+            return any(s in body for s in SUCCESS_TEXTS)
         except Exception:
             return False
 
@@ -301,6 +378,18 @@ class LinkedInApplyBot:
                     break
         except Exception:
             pass
+
+    def _pause_for_login(self):
+        """Wait for the user to log in before collecting (no time pressure)."""
+        print(f"\n{'='*55}", flush=True)
+        print("🔑 Log in to LinkedIn in the browser if needed.", flush=True)
+        print("   When the job list is visible, press Enter here to start.", flush=True)
+        print(f"{'='*55}", flush=True)
+        try:
+            input()
+        except EOFError:
+            log.info("No stdin — waiting 60s for manual login.")
+            sleep(60)
 
     def _save_progress(self):
         try:
